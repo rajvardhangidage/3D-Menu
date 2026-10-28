@@ -4,8 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import CafeExperiencePage from "../src/pages/CafeExperiencePage";
 import type { CafeMenu } from "../src/api/types";
 
-vi.mock("../src/components/SpatialAtmosphere", () => ({ default: () => <div data-testid="spatial-atmosphere" /> }));
-
 const menu: CafeMenu = {
   id: "cafe-id",
   name: "Cafe Aroma",
@@ -55,16 +53,21 @@ beforeEach(() => {
 });
 
 describe("public customer menu flow", () => {
-  it("loads the spatial menu, lets guests browse categories and dishes, and shows item details", async () => {
+  it("shows a short cafe intro before the floating menu and supports browsing categories and dishes", async () => {
     renderMenu();
-    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("Something delicious.");
+    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("Cafe Aroma");
+    expect(screen.getByText("A Culinary Journey")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /camera/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Tap to explore menu/ }));
+
+    expect(await screen.findByRole("heading", { name: "Mains" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Garden pasta" })).toBeInTheDocument();
     expect(screen.queryByText("Unavailable dish")).not.toBeInTheDocument();
     expect(screen.getByText("$8.00")).toBeInTheDocument();
     expect(screen.getByText("$14.00")).toBeInTheDocument();
 
     expect(screen.getAllByRole("button", { name: "Show Garden burrata" })).toHaveLength(2);
-    expect(screen.getAllByRole("button", { name: "Show Wild mushroom toast" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Show Wild mushroom risotto" })).toHaveLength(2);
     fireEvent.click(screen.getAllByRole("button", { name: "Show Garden burrata" })[0]);
     expect(await screen.findByRole("heading", { name: "Garden burrata" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next menu item" }));
@@ -83,7 +86,8 @@ describe("public customer menu flow", () => {
       headers: { "Content-Type": "application/json" },
     })));
     renderMenu();
-    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("Something delicious.");
+    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("Cafe Aroma");
+    fireEvent.click(screen.getByRole("button", { name: /Tap to explore menu/ }));
     expect(await screen.findByText("No available items in this section right now.")).toBeInTheDocument();
   });
 
@@ -99,7 +103,7 @@ describe("public customer menu flow", () => {
 
     expect(await screen.findByText("network unavailable")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("Something delicious.");
+    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("Cafe Aroma");
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
   });
 });

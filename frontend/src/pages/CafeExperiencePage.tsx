@@ -1,5 +1,5 @@
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useTransform } from "framer-motion";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { fetchMenu } from "../api/menu";
 import type { CafeMenu, MenuItem } from "../api/types";
@@ -30,8 +30,9 @@ function ErrorExperience({ message, onRetry }: { message: string; onRetry: () =>
   );
 }
 
-function FoodCard({ item, currencyCode, index, count, onNext, onPrevious, onDetails }: {
+function FoodCard({ item, currencyCode, index, count, direction, onNext, onPrevious, onDetails }: {
   item: MenuCardItem; currencyCode: string; index: number; count: number;
+  direction: number;
   onNext: () => void; onPrevious: () => void; onDetails: () => void;
 }) {
   const reducedMotion = useReducedMotion();
@@ -45,9 +46,10 @@ function FoodCard({ item, currencyCode, index, count, onNext, onPrevious, onDeta
   return (
     <motion.article
       className="spatial-card"
-      initial={reducedMotion ? false : { opacity: 0, y: 22, scale: 0.94, rotateY: -5, z: -30 }}
+      custom={direction}
+      initial={reducedMotion ? false : { opacity: 0, x: direction > 0 ? 34 : -34, scale: 0.94, z: -30 }}
       animate={{ opacity: 1, y: 0, scale: 1, rotateY: 0, z: 34 }}
-      exit={reducedMotion ? { opacity: 0 } : { opacity: 0, y: -12, scale: 0.96, rotateY: 4, z: -30 }}
+      exit={reducedMotion ? { opacity: 0 } : { opacity: 0, x: direction > 0 ? -45 : 45, scale: 0.92, z: -50 }}
       transition={{ type: "spring", stiffness: 190, damping: 24, mass: 0.8 }}
       drag="x"
       dragConstraints={{ left: 0, right: 0 }}
@@ -132,18 +134,22 @@ function ItemDetails({ item, currencyCode, onClose }: { item: MenuCardItem; curr
   );
 }
 
-function DishEcho({ item, position, onSelect }: { item: MenuCardItem; position: number; onSelect: () => void }) {
+function DishEcho({ item, position, onSelect }: { item: MenuCardItem; position: "previous" | "next"; onSelect: () => void }) {
   return (
-    <button
+    <motion.button
       className={`dish-echo dish-echo-${position}`}
       type="button"
       onClick={onSelect}
       aria-label={`Show ${item.name}`}
-      style={{ zIndex: 3 - position }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: position === "previous" ? 0.8 : 0.76 }}
+      exit={{ opacity: 0 }}
+      transition={{ type: "spring", stiffness: 170, damping: 22 }}
+      style={{ zIndex: 2 }}
     >
       {item.imageUrl ? <img src={item.imageUrl} alt="" loading="lazy" /> : <span className={`food-image-fallback food-fallback-${item.categoryIndex % 5}`}><i className="fallback-dish" /></span>}
       <span className="dish-echo-caption">{item.name}</span>
-    </button>
+    </motion.button>
   );
 }
 
@@ -152,17 +158,12 @@ export default function CafeExperiencePage() {
   const [menu, setMenu] = useState<CafeMenu | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [entered, setEntered] = useState(false);
   const [categoryId, setCategoryId] = useState("");
   const [itemIndex, setItemIndex] = useState(0);
+  const [itemDirection, setItemDirection] = useState(1);
   const [detailItem, setDetailItem] = useState<MenuCardItem | null>(null);
   const [showAllCategories, setShowAllCategories] = useState(false);
-  const [cameraActive, setCameraActive] = useState(false);
-  const [cameraError, setCameraError] = useState("");
-  const [motionEnabled, setMotionEnabled] = useState(false);
-  const [motionError, setMotionError] = useState("");
-  const cameraRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const sceneRef = useRef<HTMLElement>(null);
   const reducedMotion = useReducedMotion();
 
   const loadMenu = useCallback(async () => {
@@ -186,6 +187,7 @@ export default function CafeExperiencePage() {
     setMenu(null);
     setLoading(true);
     setError("");
+    setEntered(false);
     setCategoryId("");
     setDetailItem(null);
     fetchMenu(slug, controller.signal).then((result) => {
@@ -200,24 +202,6 @@ export default function CafeExperiencePage() {
     });
     return () => controller.abort();
   }, [loadMenu]);
-
-  useEffect(() => {
-    if (!motionEnabled) return;
-    const handleOrientation = (event: DeviceOrientationEvent) => {
-      const scene = sceneRef.current;
-      if (!scene || reducedMotion) return;
-      const tiltX = Math.max(-8, Math.min(8, (event.gamma ?? 0) * 0.22));
-      const tiltY = Math.max(-6, Math.min(6, ((event.beta ?? 0) - 35) * -0.12));
-      scene.style.setProperty("--tilt-x", `${tiltY}deg`);
-      scene.style.setProperty("--tilt-y", `${tiltX}deg`);
-    };
-    window.addEventListener("deviceorientation", handleOrientation);
-    return () => window.removeEventListener("deviceorientation", handleOrientation);
-  }, [motionEnabled, reducedMotion]);
-
-  useEffect(() => () => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-  }, []);
 
   const categories = useMemo(
     () => [...(menu?.categories ?? [])].sort((a, b) => a.displayOrder - b.displayOrder),
@@ -240,157 +224,121 @@ export default function CafeExperiencePage() {
   const changeCategory = (nextId: string) => {
     setCategoryId(nextId);
     setItemIndex(0);
+    setItemDirection(1);
     setShowAllCategories(false);
   };
-  const nextItem = () => setItemIndex((current) => (current + 1) % Math.max(cardItems.length, 1));
-  const previousItem = () => setItemIndex((current) => (current - 1 + cardItems.length) % Math.max(cardItems.length, 1));
+  const nextItem = () => {
+    setItemDirection(1);
+    setItemIndex((current) => (current + 1) % Math.max(cardItems.length, 1));
+  };
+  const previousItem = () => {
+    setItemDirection(-1);
+    setItemIndex((current) => (current - 1 + cardItems.length) % Math.max(cardItems.length, 1));
+  };
   const currentItem = cardItems[itemIndex] ?? null;
-  const echoes = cardItems.length > 1
-    ? [1, 2, 3].map((distance) => cardItems[(itemIndex + distance) % cardItems.length]).filter((item, index, items) => item && item.id !== currentItem?.id && items.findIndex((candidate) => candidate.id === item.id) === index).slice(0, 3)
-    : [];
-
-  const handlePointerMove = (event: React.PointerEvent<HTMLElement>) => {
-    if (motionEnabled || reducedMotion || event.pointerType !== "mouse" || !sceneRef.current) return;
-    const bounds = event.currentTarget.getBoundingClientRect();
-    sceneRef.current.style.setProperty("--tilt-x", `${((event.clientY - bounds.top) / bounds.height - 0.5) * -3}deg`);
-    sceneRef.current.style.setProperty("--tilt-y", `${((event.clientX - bounds.left) / bounds.width - 0.5) * 4}deg`);
-  };
-
-  const toggleMotion = async () => {
-    const orientationType = window.DeviceOrientationEvent as typeof DeviceOrientationEvent & { requestPermission?: () => Promise<"granted" | "denied"> };
-    setMotionError("");
-    try {
-      if (orientationType && typeof orientationType.requestPermission === "function") {
-        const permission = await orientationType.requestPermission();
-        setMotionEnabled(permission === "granted");
-        if (permission !== "granted") setMotionError("Motion access was not enabled; the menu will stay steady.");
-        return;
-      }
-      if (orientationType) {
-        setMotionEnabled(true);
-        return;
-      }
-      setMotionError("Motion sensors are unavailable; the menu will stay steady.");
-    } catch (cause) {
-      setMotionError(cause instanceof Error ? cause.message : "Motion access could not be enabled.");
-    }
-  };
-
-  const toggleCamera = async () => {
-    setCameraError("");
-    if (cameraActive) {
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-      if (cameraRef.current) cameraRef.current.srcObject = null;
-      setCameraActive(false);
-      return;
-    }
-    try {
-      if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera access is not available in this browser.");
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
-      streamRef.current = stream;
-      if (cameraRef.current) {
-        cameraRef.current.srcObject = stream;
-        await cameraRef.current.play();
-      }
-      setCameraActive(true);
-    } catch (cause) {
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-      setCameraError(cause instanceof Error ? cause.message : "Camera access could not be started.");
-    }
-  };
+  const previous = cardItems.length > 1 ? cardItems[(itemIndex - 1 + cardItems.length) % cardItems.length] : null;
+  const next = cardItems.length > 1 ? cardItems[(itemIndex + 1) % cardItems.length] : null;
 
   if (loading) return <LoadingExperience />;
   if (error || !menu) return <ErrorExperience message={error || "This cafe menu is unavailable."} onRetry={() => void loadMenu()} />;
 
   return (
-    <main className="cafe-experience" ref={sceneRef} onPointerMove={handlePointerMove}>
+    <main className={`cafe-experience${entered ? " menu-is-open" : ""}`}>
       <div className="restaurant-backdrop" aria-hidden="true" />
-      <video ref={cameraRef} className={`camera-backdrop${cameraActive ? " camera-backdrop-active" : ""}`} autoPlay playsInline muted aria-hidden="true" />
       <div className="environment-shade" aria-hidden="true" />
-      <div className="experience-grain" aria-hidden="true" />
+      <AnimatePresence mode="wait" initial={false}>
+        {!entered ? (
+          <motion.section
+            className="entry-scene"
+            key="entry"
+            initial={reducedMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={reducedMotion ? { opacity: 0 } : { opacity: 0, scale: 1.04 }}
+            transition={{ duration: 0.45 }}
+          >
+            <div className="entry-brandmark">
+              {menu.logoUrl ? <img src={menu.logoUrl} alt="" /> : <span>{menu.name.charAt(0).toUpperCase()}</span>}
+            </div>
+            <p className="entry-caption">A TABLE SET FOR YOU</p>
+            <h1>{menu.name}</h1>
+            <p className="entry-subtitle">A Culinary Journey</p>
+            <button type="button" className="explore-button" onClick={() => setEntered(true)}>Tap to explore menu <span>↗</span></button>
+            {menu.address && <p className="entry-location">{menu.address}</p>}
+          </motion.section>
+        ) : (
+          <motion.section
+            className="spatial-menu-window"
+            key="menu"
+            aria-label={`${menu.name} menu`}
+            style={{ perspective: 1300, transformStyle: "preserve-3d" }}
+            initial={reducedMotion ? false : { opacity: 0, y: 28, scale: 0.94, rotateX: 4 }}
+            animate={{ opacity: 1, y: 0, scale: 1, rotateX: 0.55, rotateY: -0.35 }}
+            exit={{ opacity: 0, y: 12, scale: 0.97 }}
+            transition={{ type: "spring", stiffness: 150, damping: 22 }}
+          >
+            <header className="window-header">
+              <div className="window-identity">
+                {menu.logoUrl ? <img src={menu.logoUrl} alt="" /> : <span className="brand-monogram">{menu.name.charAt(0).toUpperCase()}</span>}
+                <span><strong>{menu.name}</strong><small>{menu.address || "A table set just for you"}</small></span>
+              </div>
+              {menu.phone && <a className="cafe-call-link" href={`tel:${menu.phone}`} aria-label={`Call ${menu.name}`}>CALL <span>↗</span></a>}
+            </header>
 
-      <div className="scene-ambient-label" aria-hidden="true"><span /> {cameraActive ? "YOUR SPACE · LIVE" : "A MENU IN YOUR SPACE"}</div>
+            <div className="menu-category-title"><span>THE MENU</span><h1>{activeCategory?.name || "Our menu"}</h1></div>
 
-      <section className="spatial-menu-window" aria-label={`${menu.name} menu`}>
-        <header className="window-header">
-          <div className="window-identity">
-            {menu.logoUrl ? <img src={menu.logoUrl} alt="" /> : <span className="brand-monogram">{menu.name.charAt(0).toUpperCase()}</span>}
-            <span><strong>{menu.name}</strong><small>{menu.address || "A table set just for you"}</small></span>
-          </div>
-          <div className="window-tools">
-            {menu.phone && <a className="environment-control phone-control" href={`tel:${menu.phone}`}>Call the cafe</a>}
-            <button type="button" className={`environment-control${cameraActive ? " control-active" : ""}`} onClick={() => void toggleCamera()} aria-pressed={cameraActive}>
-              <span className="camera-icon" aria-hidden="true" />{cameraActive ? "Camera live" : "Use camera"}
-            </button>
-            <button type="button" className={`motion-control${motionEnabled ? " control-active" : ""}`} onClick={() => void toggleMotion()} aria-pressed={motionEnabled} aria-label={motionEnabled ? "Disable motion parallax" : "Enable motion parallax"}>
-              <span aria-hidden="true">⌁</span>
-            </button>
-          </div>
-        </header>
+            <nav className="spatial-category-nav" aria-label="Menu categories">
+              <div className="category-chip-row">
+                {categories.map((category) => (
+                  <button
+                    className={`spatial-category-chip${category.id === categoryId ? " selected" : ""}`}
+                    key={category.id}
+                    onClick={() => changeCategory(category.id)}
+                    aria-pressed={category.id === categoryId}
+                  >{category.name}</button>
+                ))}
+              </div>
+              {categories.length > 4 && <button className="category-expand" onClick={() => setShowAllCategories(!showAllCategories)} aria-expanded={showAllCategories}>{showAllCategories ? "Less" : "More"}<span>{showAllCategories ? "×" : "⌄"}</span></button>}
+              {showAllCategories && <div className="category-expansion">{categories.map((category) => <button key={category.id} onClick={() => changeCategory(category.id)}>{category.name}<span>{String(category.items.filter((item) => item.available).length).padStart(2, "0")}</span></button>)}</div>}
+            </nav>
 
-        <div className="window-intro">
-          <div><span className="window-kicker"><i /> {menu.description || "MADE WITH CARE, SERVED IN GOOD COMPANY"}</span><h1>Something <em>delicious.</em></h1></div>
-          <span className="window-category-count">{String(categories.length).padStart(2, "0")} <small>COLLECTIONS</small></span>
-        </div>
-
-        <nav className="spatial-category-nav" aria-label="Menu categories">
-          <button type="button" className="category-back-control" aria-label="Previous category" onClick={() => {
-            const currentIndex = categories.findIndex((category) => category.id === categoryId);
-            changeCategory(categories[(currentIndex - 1 + categories.length) % Math.max(categories.length, 1)]?.id ?? "");
-          }}>‹</button>
-          <div className="category-chip-row">
-            {categories.map((category, index) => (
-              <button
-                className={`spatial-category-chip${category.id === categoryId ? " selected" : ""}`}
-                key={category.id}
-                onClick={() => changeCategory(category.id)}
-                aria-pressed={category.id === categoryId}
-              ><small>{String(index + 1).padStart(2, "0")}</small>{category.name}</button>
-            ))}
-          </div>
-          {categories.length > 3 && <button className="category-expand" onClick={() => setShowAllCategories(!showAllCategories)} aria-expanded={showAllCategories}>{showAllCategories ? "Close" : "All"}<span>{showAllCategories ? "×" : "⌄"}</span></button>}
-          {showAllCategories && <div className="category-expansion">{categories.map((category) => <button key={category.id} onClick={() => changeCategory(category.id)}>{category.name}<span>{String(category.items.filter((item) => item.available).length).padStart(2, "0")}</span></button>)}</div>}
-        </nav>
-
-        <div className="window-content">
-          <div className="dish-gallery">
-            {echoes.map((item, index) => <DishEcho key={item.id} item={item} position={index + 1} onSelect={() => setItemIndex(cardItems.findIndex((candidate) => candidate.id === item.id))} />)}
-            {currentItem ? (
-              <AnimatePresence mode="wait" initial={false}>
-                <FoodCard
-                  key={currentItem.id}
-                  item={currentItem}
-                  currencyCode={menu.currencyCode}
-                  index={itemIndex}
-                  count={cardItems.length}
-                  onNext={nextItem}
-                  onPrevious={previousItem}
-                  onDetails={() => setDetailItem(currentItem)}
-                />
-              </AnimatePresence>
-            ) : (
-              <div className="empty-spatial-menu"><span className="empty-orbit">✳</span><h2>A little quiet here.</h2><p>No available items in this section right now.</p></div>
-            )}
-          </div>
-          <div className="window-navigation">
-            <button type="button" className="window-back" onClick={() => {
-              const currentIndex = categories.findIndex((category) => category.id === categoryId);
-              changeCategory(categories[Math.max(0, currentIndex - 1)]?.id ?? "");
-            }}><span aria-hidden="true">←</span> BACK</button>
-            {cardItems.length > 1 && <div className="carousel-controls">
-              <button onClick={previousItem} aria-label="Previous menu item">←</button>
-              <div>{cardItems.map((item, index) => <button key={item.id} className={index === itemIndex ? "active" : ""} onClick={() => setItemIndex(index)} aria-label={`Show ${item.name}`} />)}</div>
-              <button onClick={nextItem} aria-label="Next menu item">→</button>
-            </div>}
-            <div className="window-nav-note"><span>SWIPE TO EXPLORE</span><i>↔</i></div>
-          </div>
-        </div>
-        {(cameraError || motionError) && <p className="camera-error" role="status">{cameraError || motionError}</p>}
-      </section>
-
-      <footer className="experience-bottomline"><span>DRAG OR SWIPE TO WANDER</span><i /><span>{menu.name.toUpperCase()}</span></footer>
+            <div className="window-content">
+              <div className="dish-gallery">
+                <AnimatePresence initial={false}>
+                  {previous && <DishEcho key={previous.id} item={previous} position="previous" onSelect={previousItem} />}
+                  {next && <DishEcho key={next.id} item={next} position="next" onSelect={nextItem} />}
+                </AnimatePresence>
+                {currentItem ? (
+                  <AnimatePresence mode="wait" initial={false}>
+                    <FoodCard
+                      key={currentItem.id}
+                      item={currentItem}
+                      currencyCode={menu.currencyCode}
+                      index={itemIndex}
+                      count={cardItems.length}
+                      direction={itemDirection}
+                      onNext={nextItem}
+                      onPrevious={previousItem}
+                      onDetails={() => setDetailItem(currentItem)}
+                    />
+                  </AnimatePresence>
+                ) : (
+                  <div className="empty-spatial-menu"><span className="empty-orbit">✳</span><h2>A little quiet here.</h2><p>No available items in this section right now.</p></div>
+                )}
+              </div>
+              <div className="window-navigation">
+                <button type="button" className="window-back" onClick={() => setEntered(false)}><span aria-hidden="true">←</span> BACK</button>
+                {cardItems.length > 1 && <div className="carousel-controls">
+                  <button onClick={previousItem} aria-label="Previous menu item">←</button>
+                  <div>{cardItems.map((item, index) => <button key={item.id} className={index === itemIndex ? "active" : ""} onClick={() => setItemIndex(index)} aria-label={`Show ${item.name}`} />)}</div>
+                  <button onClick={nextItem} aria-label="Next menu item">→</button>
+                </div>}
+                <div className="window-nav-note"><span>SWIPE TO EXPLORE</span><i>↔</i></div>
+              </div>
+            </div>
+          </motion.section>
+        )}
+      </AnimatePresence>
+      <footer className="experience-bottomline"><span>{entered ? "DRAG OR SWIPE TO WANDER" : menu.name.toUpperCase()}</span><i /><span>{entered ? "MADE WITH CARE" : "A CULINARY JOURNEY"}</span></footer>
       <AnimatePresence>{detailItem && <ItemDetails item={detailItem} currencyCode={menu.currencyCode} onClose={() => setDetailItem(null)} />}</AnimatePresence>
     </main>
   );
