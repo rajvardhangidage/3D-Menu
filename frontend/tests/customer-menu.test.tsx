@@ -23,6 +23,9 @@ const menu: CafeMenu = {
       items: [
         { id: "dish", name: "Garden pasta", description: "Fresh herbs", imageUrl: null, halfPrice: 8, fullPrice: 14, available: true, displayOrder: 0 },
         { id: "hidden", name: "Unavailable dish", description: null, imageUrl: null, halfPrice: null, fullPrice: 9, available: false, displayOrder: 1 },
+        { id: "burrata", name: "Garden burrata", description: null, imageUrl: null, halfPrice: null, fullPrice: 15, available: true, displayOrder: 2 },
+        { id: "toast", name: "Wild mushroom toast", description: null, imageUrl: null, halfPrice: null, fullPrice: 14, available: true, displayOrder: 3 },
+        { id: "risotto", name: "Wild mushroom risotto", description: "Slow-cooked rice", imageUrl: null, halfPrice: null, fullPrice: 16, available: true, displayOrder: 4 },
       ],
     },
     {
@@ -52,16 +55,20 @@ beforeEach(() => {
 });
 
 describe("public customer menu flow", () => {
-  it("loads the welcome screen, lets guests choose a category, and shows item details with both prices", async () => {
+  it("loads the spatial menu, lets guests browse categories and dishes, and shows item details", async () => {
     renderMenu();
-    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent(/Welcome to\s*Cafe Aroma/);
-    fireEvent.click(screen.getByRole("button", { name: /Explore the menu/ }));
-
+    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("Something delicious.");
     expect(await screen.findByRole("heading", { name: "Garden pasta" })).toBeInTheDocument();
     expect(screen.queryByText("Unavailable dish")).not.toBeInTheDocument();
     expect(screen.getByText("$8.00")).toBeInTheDocument();
     expect(screen.getByText("$14.00")).toBeInTheDocument();
 
+    expect(screen.getAllByRole("button", { name: "Show Garden burrata" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Show Wild mushroom toast" })).toHaveLength(2);
+    fireEvent.click(screen.getAllByRole("button", { name: "Show Garden burrata" })[0]);
+    expect(await screen.findByRole("heading", { name: "Garden burrata" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next menu item" }));
+    expect(await screen.findByRole("heading", { name: "Wild mushroom toast" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Drinks/ }));
     expect(await screen.findByRole("heading", { name: "Mint tea" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "View Mint tea details" }));
@@ -76,8 +83,7 @@ describe("public customer menu flow", () => {
       headers: { "Content-Type": "application/json" },
     })));
     renderMenu();
-    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent(/Welcome to\s*Cafe Aroma/);
-    fireEvent.click(screen.getByRole("button", { name: /Explore the menu/ }));
+    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("Something delicious.");
     expect(await screen.findByText("No available items in this section right now.")).toBeInTheDocument();
   });
 
@@ -93,7 +99,7 @@ describe("public customer menu flow", () => {
 
     expect(await screen.findByText("network unavailable")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent(/Welcome to\s*Cafe Aroma/);
+    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("Something delicious.");
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
   });
 });
